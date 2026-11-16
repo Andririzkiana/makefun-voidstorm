@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>VOIDSTORM — Neon Deep-Space Defense</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: #02040c;
+    overflow: hidden;
+  }
+  body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: radial-gradient(1200px 700px at 50% 38%, #0a1233 0%, #02040c 70%);
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  }
+  #stage {
+    position: relative;
+    line-height: 0;
+  }
+  canvas {
+    width: min(100vw, 160vh);
+    height: auto;
+    aspect-ratio: 1280 / 800;
+    background: #050914;
+    box-shadow: 0 0 0 1px rgba(67, 245, 255, 0.25), 0 0 64px rgba(38, 92, 255, 0.35),
+      0 0 140px rgba(255, 79, 216, 0.12);
+    border-radius: 6px;
+    cursor: crosshair;
+  }
+  #err {
+    position: absolute;
+    left: 8px;
+    bottom: 8px;
+    color: #ff5468;
+    font: 12px/1.4 monospace;
+    white-space: pre-wrap;
+  }
+</style>
+</head>
+<body>
+  <div id="stage">
+    <canvas id="game" width="1280" height="800"></canvas>
+    <div id="err"></div>
+  </div>
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>

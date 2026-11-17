@@ -4,6 +4,8 @@
 // show the complete loop: title, HUD, banners and the results screen.
 
 import { VIEW, COLORS, WEAPONS } from './config.js';
+import { BOSS_NAME, BOSS_TITLE, SECTORS, TOTAL_WAVES, sectorForWave } from './campaign.js';
+import { DIFFICULTIES, MODES } from './modes.js';
 import { drawPlayerShip, drawDarter, drawWeaver, drawLancer, drawGunner, drawCarrier } from './ships.js';
 
 const FONT = '"Segoe UI", system-ui, sans-serif';
@@ -60,8 +62,15 @@ export function drawHUD(ctx, game) {
     text(ctx, `COMBO x${game.multiplier}`, 28 + w + 10, 100, { size: 15, color: COLORS.gold, glow: 8 });
   }
 
-  // Wave, top-center.
-  text(ctx, `WAVE ${String(game.wave).padStart(2, '0')}`, VIEW.width / 2, 38, {
+  // Sector and wave, top-center: the campaign frame is always visible.
+  const sector = SECTORS[game.sectorIndex] ?? SECTORS[0];
+  text(ctx, sector.name, VIEW.width / 2, 20, {
+    size: 11, color: COLORS.textDim, align: 'center', spacing: 4, weight: 600,
+  });
+  const waveLabel = game.runMode === 'endless'
+    ? `WAVE ${String(game.wave).padStart(2, '0')} · ENDLESS`
+    : `WAVE ${String(game.wave).padStart(2, '0')}/${TOTAL_WAVES}`;
+  text(ctx, waveLabel, VIEW.width / 2, 42, {
     size: 19, color: COLORS.player, align: 'center', spacing: 4, glow: 8,
   });
 
@@ -92,6 +101,9 @@ export function drawHUD(ctx, game) {
     ctx.fillRect(150 + i * 16, VIEW.height - 34, 10, 10);
     ctx.restore();
   }
+  text(ctx, `· ${game.runDifficulty.name} x${game.runDifficulty.scoreMul}`, 244, VIEW.height - 28, {
+    size: 12, color: COLORS.textDim, spacing: 2, weight: 600,
+  });
   if (game.player.shieldT > 0) {
     text(ctx, 'SHIELD', 28, VIEW.height - 54, { size: 12, color: COLORS.shield, spacing: 2 });
   }
@@ -104,10 +116,17 @@ export function drawHUD(ctx, game) {
 export function drawBossBar(ctx, boss) {
   const w = 520;
   const x = (VIEW.width - w) / 2;
-  const y = 64;
-  text(ctx, 'DREADNOUGHT', x - 14, y + 5, {
-    size: 12, color: COLORS.danger, align: 'right', spacing: 3,
+  const cx = VIEW.width / 2;
+  // The name plate: the Dreadnought is introduced like a fighting-game
+  // boss — a bordered plate carrying its name and title above the bar.
+  panel(ctx, cx - 190, 52, 380, 46, 'rgba(255,56,96,0.6)');
+  text(ctx, BOSS_NAME, cx, 69, {
+    size: 18, color: COLORS.danger, align: 'center', spacing: 6, glow: 12, weight: 800,
   });
+  text(ctx, BOSS_TITLE, cx, 88, {
+    size: 9, color: '#ff9db4', align: 'center', spacing: 3, weight: 600,
+  });
+  const y = 106;
   ctx.save();
   ctx.fillStyle = 'rgba(255,56,96,0.15)';
   ctx.fillRect(x, y, w, 10);
@@ -148,14 +167,33 @@ export function drawWaveBanner(ctx, game) {
   const inK = Math.min(1, (game.bannerDuration - t) / 0.3);
   const outK = Math.min(1, t / 0.4);
   const alpha = Math.min(inK, outK);
-  const isBoss = game.wave % 5 === 0;
-  text(ctx, isBoss ? 'WARNING' : `WAVE ${game.wave}`, VIEW.width / 2, 300, {
-    size: isBoss ? 54 : 58,
-    color: isBoss ? COLORS.danger : COLORS.textMain,
-    align: 'center', spacing: 10, glow: 18, alpha,
+  const kind = game.bannerKind ?? 'wave';
+  if (kind === 'boss') {
+    text(ctx, 'WARNING', VIEW.width / 2, 300, {
+      size: 54, color: COLORS.danger, align: 'center', spacing: 10, glow: 18, alpha,
+    });
+    text(ctx, `${BOSS_NAME} — ${BOSS_TITLE}`, VIEW.width / 2, 348, {
+      size: 16, color: '#ff9db4', align: 'center', spacing: 4, alpha,
+    });
+    return;
+  }
+  if (kind === 'sector') {
+    // A new sector opens with its name writ large: the campaign's
+    // geography is part of the story the run tells.
+    const sector = SECTORS[game.sectorIndex] ?? SECTORS[0];
+    text(ctx, sector.name, VIEW.width / 2, 296, {
+      size: 52, color: COLORS.textMain, align: 'center', spacing: 8, glow: 18, alpha,
+    });
+    text(ctx, `SECTOR ${game.sectorIndex + 1} OF ${SECTORS.length} · WAVE ${game.wave}${game.runMode === 'endless' ? '' : `/${TOTAL_WAVES}`} · ${sector.flavor}`, VIEW.width / 2, 346, {
+      size: 15, color: COLORS.textDim, align: 'center', spacing: 3, alpha,
+    });
+    return;
+  }
+  text(ctx, `WAVE ${game.wave}`, VIEW.width / 2, 300, {
+    size: 58, color: COLORS.textMain, align: 'center', spacing: 10, glow: 18, alpha,
   });
-  text(ctx, isBoss ? 'CAPITAL SIGNATURE DETECTED' : waveFlavor(game.wave), VIEW.width / 2, 348, {
-    size: 16, color: isBoss ? '#ff9db4' : COLORS.textDim, align: 'center', spacing: 4, alpha,
+  text(ctx, waveFlavor(game.wave), VIEW.width / 2, 348, {
+    size: 16, color: COLORS.textDim, align: 'center', spacing: 4, alpha,
   });
 }
 
@@ -172,6 +210,26 @@ function waveFlavor(wave) {
   return lines[(wave - 1) % lines.length];
 }
 
+// One selectable option on the title screen: the chosen one wears a
+// gold plate so the current difficulty and mode read at a glance.
+function drawOption(ctx, label, x, y, w, selected) {
+  if (selected) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,217,74,0.13)';
+    ctx.strokeStyle = 'rgba(255,217,74,0.8)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.roundRect(x - w / 2, y - 16, w, 32, 7);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+  text(ctx, label, x, y, {
+    size: 16, color: selected ? COLORS.gold : COLORS.textDim,
+    align: 'center', spacing: 2, weight: 800, glow: selected ? 10 : 0,
+  });
+}
+
 export function drawTitle(ctx, game) {
   const cx = VIEW.width / 2;
   // Title with a cyan-to-magenta gradient.
@@ -180,27 +238,30 @@ export function drawTitle(ctx, game) {
   grad.addColorStop(0, '#43f5ff');
   grad.addColorStop(0.5, '#9db8ff');
   grad.addColorStop(1, '#ff4fd8');
-  ctx.font = `800 96px ${FONT}`;
+  ctx.font = `800 92px ${FONT}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   try { ctx.letterSpacing = '10px'; } catch (err) { /* older engines */ }
   ctx.shadowColor = 'rgba(67,245,255,0.8)';
   ctx.shadowBlur = 34;
   ctx.fillStyle = grad;
-  ctx.fillText('VOIDSTORM', cx, 218);
+  ctx.fillText('VOIDSTORM', cx, 192);
   ctx.shadowBlur = 0;
   ctx.strokeStyle = 'rgba(234,246,255,0.55)';
   ctx.lineWidth = 1;
-  ctx.strokeText('VOIDSTORM', cx, 218);
+  ctx.strokeText('VOIDSTORM', cx, 192);
   ctx.restore();
 
-  text(ctx, 'NEON DEEP-SPACE DEFENSE', cx, 282, {
+  text(ctx, 'NEON DEEP-SPACE DEFENSE', cx, 254, {
     size: 17, color: COLORS.player, align: 'center', spacing: 8,
+  });
+  text(ctx, `${TOTAL_WAVES}-WAVE CAMPAIGN · ${SECTORS.length} SECTORS · ONE ${BOSS_NAME}`, cx, 282, {
+    size: 13, color: COLORS.gold, align: 'center', spacing: 3, weight: 700,
   });
 
   // The hero ship, hovering with a live engine flame.
   ctx.save();
-  ctx.translate(cx, 408 + Math.sin(game.time * 1.6) * 7);
+  ctx.translate(cx, 348 + Math.sin(game.time * 1.6) * 7);
   ctx.scale(1.9, 1.9);
   drawPlayerShip(ctx, game.time, 0.7);
   ctx.restore();
@@ -209,23 +270,31 @@ export function drawTitle(ctx, game) {
   ctx.save();
   ctx.strokeStyle = 'rgba(67,245,255,0.35)';
   ctx.beginPath();
-  ctx.moveTo(cx - 260, 486);
-  ctx.lineTo(cx + 260, 486);
+  ctx.moveTo(cx - 260, 414);
+  ctx.lineTo(cx + 260, 414);
   ctx.stroke();
   ctx.restore();
 
-  const left = cx - 250;
-  const right = cx + 40;
-  const rows = [
-    ['MOVE', 'WASD · ARROWS · MOUSE'],
-    ['FIRE', 'SPACE · HOLD CLICK'],
-    ['BOMB', 'X — CLEARS THE SKY'],
-    ['PAUSE', 'P'],
-  ];
-  rows.forEach(([label, value], i) => {
-    const y = 522 + i * 30;
-    text(ctx, label, left, y, { size: 14, color: COLORS.textDim, spacing: 2 });
-    text(ctx, value, right, y, { size: 14, color: COLORS.textMain });
+  // The mission select: difficulty and mode, chosen before launch.
+  const select = game.modeSelect;
+  panel(ctx, cx - 292, 430, 584, 118);
+  text(ctx, 'DIFFICULTY', cx - 264, 458, { size: 11, color: COLORS.textDim, spacing: 2 });
+  DIFFICULTIES.forEach((difficulty, i) => {
+    drawOption(ctx, `${difficulty.name} x${difficulty.scoreMul}`, cx - 84 + i * 138, 458, 128, i === select.difficultyIndex);
+  });
+  text(ctx, 'MODE', cx - 264, 496, { size: 11, color: COLORS.textDim, spacing: 2 });
+  MODES.forEach((mode, i) => {
+    drawOption(ctx, mode.name, cx - 30 + i * 196, 496, 184, i === select.modeIndex);
+  });
+  text(ctx, select.modeEntry.blurb, cx + 130, 524, {
+    size: 10, color: 'rgba(143,183,216,0.75)', align: 'center', spacing: 2, weight: 600,
+  });
+  text(ctx, 'UP/DN DIFFICULTY · L/R MODE', cx - 264, 524, {
+    size: 10, color: 'rgba(143,183,216,0.75)', spacing: 2, weight: 600,
+  });
+
+  text(ctx, 'MOVE WASD · ARROWS · MOUSE — FIRE SPACE · CLICK — BOMB X — PAUSE P', cx, 576, {
+    size: 12, color: COLORS.textDim, align: 'center', spacing: 1, weight: 600,
   });
 
   // The bestiary: every threat in the void, named, so a first-time
@@ -240,27 +309,27 @@ export function drawTitle(ctx, game) {
   cast.forEach(([name, draw, scale], i) => {
     const bx = cx + (i - (cast.length - 1) / 2) * 118;
     ctx.save();
-    ctx.translate(bx, 632);
+    ctx.translate(bx, 622);
     ctx.scale(scale, scale);
     draw(ctx, game.time + i * 1.7);
     ctx.restore();
-    text(ctx, name, bx, 660, {
+    text(ctx, name, bx, 650, {
       size: 10, color: COLORS.textDim, align: 'center', spacing: 2, weight: 600,
     });
   });
 
   const blink = Math.sin(game.time * 3.4) > -0.25;
   if (blink) {
-    text(ctx, 'PRESS ENTER OR CLICK TO LAUNCH', cx, 692, {
+    text(ctx, 'PRESS ENTER OR CLICK TO LAUNCH', cx, 688, {
       size: 19, color: COLORS.gold, align: 'center', spacing: 3, glow: 12,
     });
   }
   if (game.best > 0) {
-    text(ctx, `BEST ${padScore(game.best)}`, cx, 716, {
+    text(ctx, `BEST ${padScore(game.best)}`, cx, 714, {
       size: 14, color: COLORS.textDim, align: 'center', spacing: 2,
     });
   }
-  text(ctx, 'SURVIVE THE WAVES · BREAK THE DREADNOUGHT EVERY FIFTH', cx, 756, {
+  text(ctx, `BREAK THE ${BOSS_NAME} AT WAVE ${TOTAL_WAVES} · THEN FACE THE ENDLESS VOID`, cx, 752, {
     size: 12, color: 'rgba(143,183,216,0.7)', align: 'center', spacing: 2, weight: 600,
   });
 }
@@ -278,40 +347,73 @@ export function drawPaused(ctx, game) {
   });
 }
 
+function runStats(game) {
+  return [
+    ['FINAL SCORE', padScore(game.score)],
+    ['SECTOR REACHED', sectorForWave(game.wave, game.runMode).name],
+    ['WAVE REACHED', game.runMode === 'endless' ? `${game.wave} · ENDLESS` : `${game.wave}/${TOTAL_WAVES}`],
+    ['KILLS', String(game.kills)],
+    ['DIFFICULTY', game.runDifficulty.name],
+    ['BEST', padScore(game.best)],
+  ];
+}
+
+function drawStatsPanel(ctx, game, top) {
+  const px = VIEW.width / 2 - 190;
+  panel(ctx, px, top, 380, 252);
+  runStats(game).forEach(([label, value], i) => {
+    const y = top + 32 + i * 38;
+    text(ctx, label, px + 28, y, { size: 13, color: COLORS.textDim, spacing: 2 });
+    text(ctx, value, px + 352, y, { size: 18, color: COLORS.textMain, align: 'right' });
+  });
+  if (game.newBest) {
+    text(ctx, 'NEW BEST', VIEW.width / 2, top + 278, {
+      size: 15, color: COLORS.gold, align: 'center', spacing: 4, glow: 10,
+    });
+  }
+}
+
 export function drawGameOver(ctx, game) {
   ctx.save();
   ctx.fillStyle = 'rgba(10,2,10,0.55)';
   ctx.fillRect(0, 0, VIEW.width, VIEW.height);
   ctx.restore();
-  text(ctx, 'MISSION LOST', VIEW.width / 2, 238, {
+  text(ctx, 'MISSION LOST', VIEW.width / 2, 218, {
     size: 64, color: COLORS.danger, align: 'center', spacing: 8, glow: 22,
   });
-  text(ctx, 'THE VOID CLAIMS ANOTHER SHIP', VIEW.width / 2, 288, {
+  text(ctx, 'THE VOID CLAIMS ANOTHER SHIP', VIEW.width / 2, 268, {
     size: 15, color: '#ff9db4', align: 'center', spacing: 4,
   });
 
-  const px = VIEW.width / 2 - 190;
-  panel(ctx, px, 330, 380, 176);
-  const stats = [
-    ['FINAL SCORE', padScore(game.score)],
-    ['WAVE REACHED', String(game.wave)],
-    ['KILLS', String(game.kills)],
-    ['BEST', padScore(game.best)],
-  ];
-  stats.forEach(([label, value], i) => {
-    const y = 362 + i * 38;
-    text(ctx, label, px + 28, y, { size: 13, color: COLORS.textDim, spacing: 2 });
-    text(ctx, value, px + 352, y, { size: 19, color: COLORS.textMain, align: 'right' });
-  });
-  if (game.newBest) {
-    text(ctx, 'NEW BEST', VIEW.width / 2, 528, {
-      size: 15, color: COLORS.gold, align: 'center', spacing: 4, glow: 10,
-    });
-  }
+  drawStatsPanel(ctx, game, 306);
   const blink = Math.sin(game.time * 3.4) > -0.25;
   if (blink) {
-    text(ctx, 'PRESS R OR ENTER TO FLY AGAIN', VIEW.width / 2, 580, {
+    text(ctx, 'PRESS R OR ENTER TO FLY AGAIN', VIEW.width / 2, 652, {
       size: 17, color: COLORS.gold, align: 'center', spacing: 3, glow: 10,
     });
   }
+}
+
+export function drawVictory(ctx, game) {
+  ctx.save();
+  ctx.fillStyle = 'rgba(2,16,10,0.55)';
+  ctx.fillRect(0, 0, VIEW.width, VIEW.height);
+  ctx.restore();
+  text(ctx, 'VOID CLEARED', VIEW.width / 2, 218, {
+    size: 64, color: COLORS.gold, align: 'center', spacing: 8, glow: 22,
+  });
+  text(ctx, `THE ${BOSS_NAME} FALLS — ALL ${SECTORS.length} SECTORS HELD`, VIEW.width / 2, 268, {
+    size: 15, color: COLORS.player, align: 'center', spacing: 4,
+  });
+
+  drawStatsPanel(ctx, game, 306);
+  const blink = Math.sin(game.time * 3.4) > -0.25;
+  if (blink) {
+    text(ctx, 'PRESS E TO SAIL ON INTO THE ENDLESS VOID', VIEW.width / 2, 652, {
+      size: 17, color: COLORS.gold, align: 'center', spacing: 3, glow: 10,
+    });
+  }
+  text(ctx, 'ENTER — NEW CAMPAIGN', VIEW.width / 2, 686, {
+    size: 13, color: COLORS.textDim, align: 'center', spacing: 3,
+  });
 }

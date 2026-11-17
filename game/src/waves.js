@@ -1,9 +1,12 @@
 // The wave director: turns a wave number into a timed queue of spawn
 // events, and the difficulty curve that scales enemy toughness with it.
-// Every fifth wave is a boss wave. Compositions mix formations (lines,
-// vees, streams, escorted carriers) so consecutive waves feel different.
+// Which waves carry the Dreadnought is decided by the campaign plan
+// (campaign.js) the game hands in; a difficulty (modes.js) folds into
+// the curve on top. Compositions mix formations (lines, vees, streams,
+// escorted carriers) so consecutive waves feel different.
 
 import { VIEW } from './config.js';
+import { applyDifficulty } from './modes.js';
 import { makeBoss, makeCarrier, makeDarter, makeGunner, makeLancer, makeWeaver } from './entities.js';
 
 export function diffForWave(wave) {
@@ -40,15 +43,23 @@ function stream(events, at, count, gap, make, rng) {
   }
 }
 
-export function composeWave(wave, rng) {
+export function composeWave(wave, rng, plan = {}, difficulty = null) {
   const events = [];
-  const diff = diffForWave(wave);
+  const diff = applyDifficulty(diffForWave(wave), difficulty);
 
-  if (wave % 5 === 0) {
+  if (plan.isBoss) {
     events.push({ at: 0.6, spawn: () => makeBoss(diff) });
     stream(events, 7, 4, 2.6, makeDarter, rng);
     stream(events, 13, 2, 1.4, makeLancer, rng);
     stream(events, 19, 4, 2.6, makeWeaver, rng);
+    if (plan.isFinale) {
+      // The campaign finale flies a heavier honour guard: a second
+      // lancer wing and a gunner pair screening the Dreadnought.
+      stream(events, 25, 3, 1.4, makeLancer, rng);
+      stream(events, 30, 3, 2.2, makeWeaver, rng);
+      events.push({ at: 34, spawn: (r, d) => makeGunner(r, VIEW.width * 0.3, d) });
+      events.push({ at: 34.7, spawn: (r, d) => makeGunner(r, VIEW.width * 0.7, d) });
+    }
     return events.sort((a, b) => a.at - b.at);
   }
 
@@ -107,16 +118,18 @@ export class WaveDirector {
   constructor(rng) {
     this.rng = rng;
     this.wave = 0;
+    this.plan = null;
     this.diff = diffForWave(1);
     this.queue = [];
     this.elapsed = 0;
     this.running = false;
   }
 
-  start(wave) {
+  start(wave, plan = {}, difficulty = null) {
     this.wave = wave;
-    this.diff = diffForWave(wave);
-    this.queue = composeWave(wave, this.rng);
+    this.plan = plan;
+    this.diff = applyDifficulty(diffForWave(wave), difficulty);
+    this.queue = composeWave(wave, this.rng, plan, difficulty);
     this.elapsed = 0;
     this.running = true;
   }

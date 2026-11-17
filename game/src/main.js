@@ -1,6 +1,6 @@
 // Bootstrap: wire the canvas, input and sound to the Game, then run the
 // fixed-step loop. Query parameters exist for the screenshot rig only —
-// ?shot=start|action|boss|over builds a deterministic scene and
+// ?shot=start|action|boss|late|over builds a deterministic scene and
 // ?seed=<n> pins the random generator. Plain play uses neither.
 
 import { Game } from './game.js';

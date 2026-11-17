@@ -1,9 +1,12 @@
 // The game itself: state machine, fixed-step simulation, collisions,
 // scoring and rendering order. VOIDSTORM is a wave shooter — steer the
-// last interceptor of the home fleet, break every wave, and bring down
-// the Dreadnought that anchors every fifth one.
+// last interceptor of the home fleet through a counted campaign of
+// twelve waves across four sectors (campaign.js), and bring down the
+// Dreadnought that waits at the end of it. A run's shape — CAMPAIGN or
+// ENDLESS, CADET / PILOT / ACE — is chosen on the title screen
+// (modes.js).
 //
-// States: title -> playing <-> paused -> over -> (restart) playing.
+// States: title -> playing <-> paused -> over / won -> (restart) playing.
 // The simulation always advances in fixed 1/60 steps so play feels the
 // same on every display, and so the demo scenes used for screenshots
 // (see setupShot) replay identically every time.
@@ -13,10 +16,12 @@ import { Rng } from './rng.js';
 import { Starfield } from './starfield.js';
 import { Particles } from './particles.js';
 import { WaveDirector } from './waves.js';
+import { TOTAL_WAVES, wavePlan } from './campaign.js';
+import { DIFFICULTIES, ModeSelect } from './modes.js';
 import { makePickup, makeCarrier, makeGunner, makeDarter, makeWeaver, makeLancer, makeMite, PICKUP_KINDS } from './entities.js';
 import { updateEnemy } from './entities.js';
 import * as art from './ships.js';
-import { drawHUD, drawBossBar, drawWaveBanner, drawTitle, drawPaused, drawGameOver } from './hud.js';
+import { drawHUD, drawBossBar, drawWaveBanner, drawTitle, drawPaused, drawGameOver, drawVictory } from './hud.js';
 
 const STEP = 1 / 60;
 const ENEMY_ART = {
@@ -43,6 +48,7 @@ export class Game {
     this.newBest = false;
     this.muted = false;
     this.shotMode = shot;
+    this.modeSelect = new ModeSelect();
     this.resetRun();
     if (shot) this.setupShot(shot);
   }
@@ -63,6 +69,11 @@ export class Game {
     this.waveBonusPaid = false;
     this.bannerT = 0;
     this.bannerDuration = TUNING.waveBannerTime;
+    this.bannerKind = 'wave';
+    this.runMode = 'campaign';
+    this.runDifficulty = DIFFICULTIES[1];
+    this.sectorIndex = 0;
+    this.waveIsBoss = false;
     this.lullT = 0;
     this.enemies = [];
     this.playerBullets = [];
@@ -79,6 +90,8 @@ export class Game {
 
   startRun() {
     this.resetRun();
+    this.runMode = this.modeSelect.mode;
+    this.runDifficulty = this.modeSelect.difficulty;
     this.state = 'playing';
     this.stateT = 0;
     this.nextWave();
@@ -87,10 +100,36 @@ export class Game {
 
   nextWave() {
     this.wave += 1;
-    this.director.start(this.wave);
+    const plan = wavePlan(this.wave, this.runMode);
+    this.sectorIndex = plan.sectorIndex;
+    this.waveIsBoss = plan.isBoss;
+    this.bannerKind = plan.isBoss ? 'boss' : plan.sectorStart ? 'sector' : 'wave';
+    this.director.start(this.wave, plan, this.runDifficulty);
     this.bannerT = this.bannerDuration;
     this.waveBonusPaid = false;
-    if (this.wave % 5 === 0) this.sound.bossAlarm();
+    if (plan.isBoss) this.sound.bossAlarm();
+  }
+
+  // The campaign is won: bank the score, then offer the pilot the
+  // Endless Void as an encore flown on the same run.
+  winRun() {
+    this.state = 'won';
+    this.stateT = 0;
+    this.sound.stopMusic();
+    this.sound.waveClear();
+    this.newBest = this.score > this.best;
+    if (this.newBest) {
+      this.best = this.score;
+      saveBest(this.best);
+    }
+  }
+
+  continueEndless() {
+    this.runMode = 'endless';
+    this.state = 'playing';
+    this.stateT = 0;
+    this.sound.startMusic();
+    this.nextWave();
   }
 
   get diff() {
@@ -115,6 +154,7 @@ export class Game {
     }
 
     if (this.state === 'title') {
+      this.modeSelect.handleInput(this.input);
       if (this.input.anyConfirm() && !this.shotMode) {
         this.sound.unlock();
         this.startRun();
@@ -128,6 +168,15 @@ export class Game {
     } else if (this.state === 'over') {
       if ((this.input.wasPressed('KeyR') || this.input.anyConfirm()) && !this.shotMode) {
         this.sound.unlock();
+        this.startRun();
+      }
+    } else if (this.state === 'won') {
+      if (!this.shotMode && this.input.wasPressed('KeyE')) {
+        this.sound.unlock();
+        this.continueEndless();
+      } else if (!this.shotMode && (this.input.wasPressed('KeyR') || this.input.anyConfirm())) {
+        this.sound.unlock();
+        this.modeSelect.modeIndex = 0;
         this.startRun();
       }
     }
@@ -163,19 +212,24 @@ export class Game {
     this.stepPickups(dt);
     this.stepCombo(dt);
 
-    // Wave cleared: a short lull, then the next wave rolls in.
+    // Wave cleared: a short lull, then the next wave rolls in — unless
+    // this was the campaign's final wave, which ends the run in victory.
     if (this.director.drained && this.enemies.length === 0 && !this.boss) {
       if (!this.waveBonusPaid) {
         this.waveBonusPaid = true;
-        const bonus = 25 * this.wave;
+        const bonus = 25 * this.wave * this.runDifficulty.scoreMul;
         this.score += bonus;
         this.particles.scoreText(VIEW.width / 2, 300, `WAVE ${this.wave} CLEAR  +${bonus}`, COLORS.player, 21);
       }
       this.lullT += dt;
       if (this.lullT > TUNING.waveLullTime) {
         this.lullT = 0;
-        this.sound.waveClear();
-        this.nextWave();
+        if (this.runMode === 'campaign' && this.wave >= TOTAL_WAVES) {
+          this.winRun();
+        } else {
+          this.sound.waveClear();
+          this.nextWave();
+        }
       }
     } else {
       this.lullT = 0;
@@ -414,7 +468,7 @@ export class Game {
     if (this.multiplier > prevMultiplier) {
       this.particles.scoreText(this.player.x, this.player.y - 56, `COMBO x${this.multiplier}`, COLORS.gold, 23);
     }
-    const gained = enemy.score * this.multiplier;
+    const gained = enemy.score * this.multiplier * this.runDifficulty.scoreMul;
     this.score += gained;
     this.kills += 1;
     this.particles.scoreText(enemy.x, enemy.y - 14, `+${gained}`, this.multiplier > 1 ? COLORS.gold : '#eaf6ff', this.multiplier > 2 ? 20 : 16);
@@ -435,8 +489,9 @@ export class Game {
     this.particles.explosion(x, y, COLORS.bossTurret, 1.3, this.rng);
     this.sound.explosion(false);
     this.shake = Math.max(this.shake, 5);
-    this.score += SCORES.turret * this.multiplier;
-    this.particles.scoreText(x, y - 12, `+${SCORES.turret * this.multiplier}`, COLORS.gold, 16);
+    const gained = SCORES.turret * this.multiplier * this.runDifficulty.scoreMul;
+    this.score += gained;
+    this.particles.scoreText(x, y - 12, `+${gained}`, COLORS.gold, 16);
   }
 
   dropPickup(x, y, kind) {
@@ -514,6 +569,7 @@ export class Game {
     if (name === 'over') {
       this.score = 86420;
       this.wave = 7;
+      this.sectorIndex = wavePlan(this.wave, this.runMode).sectorIndex;
       this.kills = 118;
       this.lives = 0;
       this.player.alive = false;
@@ -526,13 +582,13 @@ export class Game {
       }
       return;
     }
-    const startWave = name === 'boss' ? 5 : 3;
+    const startWave = name === 'boss' ? TOTAL_WAVES : name === 'late' ? 10 : 3;
     this.wave = startWave - 1;
     this.nextWave();
     this.bannerT = 0;
-    this.score = name === 'boss' ? 41250 : 12780;
-    this.kills = name === 'boss' ? 74 : 31;
-    this.weaponLevel = name === 'boss' ? 3 : 2;
+    this.score = name === 'boss' ? 96400 : name === 'late' ? 58730 : 12780;
+    this.kills = name === 'boss' ? 168 : name === 'late' ? 121 : 31;
+    this.weaponLevel = name === 'boss' ? 3 : name === 'late' ? 4 : 2;
     this.lives = 3;
     this.bombs = 2;
     this.multiplier = 3;
@@ -542,11 +598,37 @@ export class Game {
     if (name === 'boss') {
       this.preSim(300);
       this.stageBossScene();
+    } else if (name === 'late') {
+      this.preSim(70);
+      this.stageLateScene();
+      this.preSim(45);
     } else {
       this.preSim(70);
       this.stageActionScene();
       this.preSim(45);
     }
+  }
+
+  // A dense late-campaign tableau for the fourth screenshot: sector 4,
+  // wave 10 — the action cast plus a second carrier and a weaver stream,
+  // so the frame proves how crowded the Dread Throne gets.
+  stageLateScene() {
+    this.stageActionScene();
+    const diff = this.director.diff;
+    const carrier = makeCarrier(this.rng, 880, diff);
+    carrier.y = 120;
+    carrier.t = 3;
+    carrier.spawnT = 0.9;
+    this.enemies.push(carrier);
+    [240, 380, 520].forEach((x, i) => {
+      const weaver = makeWeaver(this.rng, x, diff);
+      weaver.y = 40 + i * 52;
+      this.enemies.push(weaver);
+    });
+    const gunner = makeGunner(this.rng, 150, diff);
+    gunner.y = gunner.hoverY = 250;
+    gunner.fireT = 0.9;
+    this.enemies.push(gunner);
   }
 
   // A composed mid-wave tableau for the action screenshot: a carrier
@@ -661,6 +743,7 @@ export class Game {
       if (this.state === 'playing') drawWaveBanner(ctx, this);
       if (this.state === 'paused') drawPaused(ctx, this);
       if (this.state === 'over') drawGameOver(ctx, this);
+      if (this.state === 'won') drawVictory(ctx, this);
     }
     drawVignette(ctx);
   }

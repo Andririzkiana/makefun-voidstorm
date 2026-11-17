@@ -13,7 +13,7 @@ import { Rng } from './rng.js';
 import { Starfield } from './starfield.js';
 import { Particles } from './particles.js';
 import { WaveDirector } from './waves.js';
-import { makePickup, makeCarrier, makeGunner, makeDarter, makeWeaver, makeMite, PICKUP_KINDS } from './entities.js';
+import { makePickup, makeCarrier, makeGunner, makeDarter, makeWeaver, makeLancer, makeMite, PICKUP_KINDS } from './entities.js';
 import { updateEnemy } from './entities.js';
 import * as art from './ships.js';
 import { drawHUD, drawBossBar, drawWaveBanner, drawTitle, drawPaused, drawGameOver } from './hud.js';
@@ -22,6 +22,7 @@ const STEP = 1 / 60;
 const ENEMY_ART = {
   darter: art.drawDarter,
   weaver: art.drawWeaver,
+  lancer: art.drawLancer,
   gunner: art.drawGunner,
   carrier: art.drawCarrier,
   mite: art.drawMite,
@@ -59,6 +60,7 @@ export class Game {
     this.comboWindow = TUNING.comboWindow;
     this.shake = 0;
     this.flash = 0;
+    this.waveBonusPaid = false;
     this.bannerT = 0;
     this.bannerDuration = TUNING.waveBannerTime;
     this.lullT = 0;
@@ -87,6 +89,7 @@ export class Game {
     this.wave += 1;
     this.director.start(this.wave);
     this.bannerT = this.bannerDuration;
+    this.waveBonusPaid = false;
     if (this.wave % 5 === 0) this.sound.bossAlarm();
   }
 
@@ -143,7 +146,11 @@ export class Game {
     for (const event of this.director.update(dt)) {
       const enemy = event.spawn(this.rng, this.director.diff);
       this.enemies.push(enemy);
-      if (enemy.kind === 'boss') this.boss = enemy;
+      if (enemy.kind === 'boss') {
+        this.boss = enemy;
+      } else {
+        this.particles.entryFlare(enemy.x, 10, enemyColor(enemy.kind), this.rng);
+      }
     }
     if (this.spawnQueue.length) {
       this.enemies.push(...this.spawnQueue);
@@ -158,6 +165,12 @@ export class Game {
 
     // Wave cleared: a short lull, then the next wave rolls in.
     if (this.director.drained && this.enemies.length === 0 && !this.boss) {
+      if (!this.waveBonusPaid) {
+        this.waveBonusPaid = true;
+        const bonus = 25 * this.wave;
+        this.score += bonus;
+        this.particles.scoreText(VIEW.width / 2, 300, `WAVE ${this.wave} CLEAR  +${bonus}`, COLORS.player, 21);
+      }
       this.lullT += dt;
       if (this.lullT > TUNING.waveLullTime) {
         this.lullT = 0;
@@ -266,6 +279,8 @@ export class Game {
       rng: this.rng, player: this.player, enemies: this.enemies,
       enemyBullets: this.enemyBullets, spawnQueue: this.spawnQueue,
       diff: this.director.diff, sound: this.sound,
+      particles: this.particles,
+      shakeIt: (v) => { this.shake = Math.max(this.shake, v); },
     };
     for (const enemy of this.enemies) updateEnemy(world, enemy, dt);
     if (this.spawnQueue.length) {
@@ -287,6 +302,7 @@ export class Game {
               turret.hp -= 1;
               bullet.dead = true;
               consumed = true;
+              this.particles.impact(bullet.x, bullet.y, COLORS.bossTurret, this.rng);
               this.sound.enemyHit();
               if (turret.hp <= 0) {
                 turret.alive = false;
@@ -300,6 +316,9 @@ export class Game {
         if (circleHit(bullet, enemy.x, enemy.y, enemy.r)) {
           bullet.dead = true;
           this.damageEnemy(enemy, 1, false);
+          if (!enemy.dead) {
+            this.particles.impact(bullet.x, bullet.y, enemyColor(enemy.kind), this.rng);
+          }
         }
       }
     }
@@ -390,7 +409,11 @@ export class Game {
 
     this.combo += 1;
     this.comboT = this.comboWindow;
+    const prevMultiplier = this.multiplier;
     this.multiplier = Math.min(TUNING.comboMax, 1 + Math.floor(this.combo / 4));
+    if (this.multiplier > prevMultiplier) {
+      this.particles.scoreText(this.player.x, this.player.y - 56, `COMBO x${this.multiplier}`, COLORS.gold, 23);
+    }
     const gained = enemy.score * this.multiplier;
     this.score += gained;
     this.kills += 1;
@@ -551,6 +574,14 @@ export class Game {
     const weaver = makeWeaver(this.rng, 205, diff);
     weaver.y = 110;
     this.enemies.push(weaver);
+    // A lancer caught mid-charge, its telegraph line drawn on the player.
+    const lancer = makeLancer(this.rng, 1010, diff);
+    lancer.mode = 'aim';
+    lancer.hoverY = 150;
+    lancer.y = 150;
+    lancer.aimT = 1.6;
+    lancer.aimAngle = Math.PI / 2 + 0.42;
+    this.enemies.push(lancer);
     this.dropPickup(560, 320, 'weapon');
   }
 
@@ -559,6 +590,7 @@ export class Game {
     const boss = this.boss;
     if (!boss) return;
     boss.hp = Math.floor(boss.maxHp * 0.62);
+    boss.phase = 2;
     boss.radialT = 0.05;
     const diff = this.director.diff;
     this.enemies.push(makeMite(this.rng, boss.x - 170, boss.y + 90, diff));
@@ -657,12 +689,35 @@ export class Game {
     }
     ctx.restore();
 
+    // Lancer telegraphs: a dashed line down the dive line, brightening
+    // as the charge completes, so the dive is always fair warning.
+    for (const enemy of this.enemies) {
+      if (enemy.kind !== 'lancer' || enemy.mode !== 'aim') continue;
+      const charge = Math.min(1, Math.max(0, 1 - Math.max(0, enemy.aimT) / 0.85));
+      ctx.save();
+      ctx.strokeStyle = COLORS.lancer;
+      ctx.globalAlpha = 0.25 + charge * 0.55;
+      ctx.lineWidth = 1.6;
+      ctx.setLineDash([9, 7]);
+      ctx.beginPath();
+      ctx.moveTo(enemy.x, enemy.y + 16);
+      ctx.lineTo(enemy.x + Math.cos(enemy.aimAngle) * 640, enemy.y + Math.sin(enemy.aimAngle) * 640);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 0.5 + charge * 0.5;
+      ctx.beginPath();
+      ctx.arc(enemy.x, enemy.y + 16, 4 + charge * 3, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
     for (const enemy of this.enemies) {
       ctx.save();
       ctx.translate(enemy.x, enemy.y);
       if (enemy.kind === 'boss') {
         art.drawBoss(ctx, enemy, this.time);
       } else {
+        if (enemy.kind === 'lancer') ctx.rotate((enemy.angle ?? Math.PI / 2) - Math.PI / 2);
         ENEMY_ART[enemy.kind]?.(ctx, this.time + enemy.phase);
       }
       ctx.restore();
@@ -676,7 +731,7 @@ export class Game {
         ctx.fill();
         ctx.restore();
       }
-      if ((enemy.kind === 'carrier' || enemy.kind === 'gunner') && enemy.hp < enemy.maxHp) {
+      if ((enemy.kind === 'carrier' || enemy.kind === 'gunner' || enemy.kind === 'lancer') && enemy.hp < enemy.maxHp) {
         drawMiniBar(ctx, enemy);
       }
     }
@@ -727,8 +782,8 @@ function circleHit(a, bx, by, br) {
 
 function enemyColor(kind) {
   return {
-    darter: COLORS.darter, weaver: COLORS.weaver, gunner: COLORS.gunner,
-    carrier: COLORS.carrier, mite: COLORS.mite,
+    darter: COLORS.darter, weaver: COLORS.weaver, lancer: COLORS.lancer,
+    gunner: COLORS.gunner, carrier: COLORS.carrier, mite: COLORS.mite,
   }[kind] ?? '#ffffff';
 }
 

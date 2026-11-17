@@ -128,6 +128,39 @@ export function drawWeaver(ctx, time) {
   ctx.restore();
 }
 
+export function drawLancer(ctx, time) {
+  ctx.save();
+  glow(ctx, COLORS.lancer, 12);
+  // Needle hull, drawn facing down its line of travel.
+  ctx.fillStyle = '#2c4d08';
+  ctx.strokeStyle = COLORS.lancer;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(0, 26);
+  ctx.lineTo(6, 2);
+  ctx.lineTo(17, -12);
+  ctx.lineTo(15, -18);
+  ctx.lineTo(4, -12);
+  ctx.lineTo(-4, -12);
+  ctx.lineTo(-15, -18);
+  ctx.lineTo(-17, -12);
+  ctx.lineTo(-6, 2);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  // Spine charge light: brightens as the dive builds.
+  const charge = 0.55 + Math.sin(time * 10) * 0.45;
+  ctx.fillStyle = `rgba(230,255,190,${charge})`;
+  ctx.beginPath();
+  ctx.ellipse(0, 4, 2.6, 8, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = COLORS.lancer;
+  ctx.beginPath();
+  ctx.arc(0, 18, 2.6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
 export function drawGunner(ctx, time) {
   ctx.save();
   glow(ctx, COLORS.gunner, 13);

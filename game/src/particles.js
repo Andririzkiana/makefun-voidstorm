@@ -70,6 +70,42 @@ export class Particles {
     this.rings.push({ x, y, r: 3, vr: 130, life: 0.14, age: 0, color });
   }
 
+  // A tight burst of sparks where a bullet lands: the hit reads even
+  // when the target survives it.
+  impact(x, y, color, rng) {
+    for (let i = 0; i < 3 && this.sparks.length < MAX_PARTICLES; i++) {
+      const angle = rng.range(0, Math.PI * 2);
+      const speed = rng.range(50, 190);
+      this.sparks.push({
+        x, y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: rng.range(0.12, 0.28),
+        age: 0,
+        color,
+        width: rng.range(1.2, 2.2),
+      });
+    }
+  }
+
+  // A warp-in flare where an enemy crosses into the field: a quick ring
+  // and a fall of embers, so nothing simply pops into existence.
+  entryFlare(x, y, color, rng) {
+    this.rings.push({ x, y, r: 4, vr: 190, life: 0.3, age: 0, color });
+    for (let i = 0; i < 5 && this.embers.length < MAX_PARTICLES; i++) {
+      this.embers.push({
+        x: x + rng.range(-12, 12),
+        y: y + rng.range(-4, 6),
+        vx: rng.range(-24, 24),
+        vy: rng.range(40, 110),
+        life: rng.range(0.3, 0.6),
+        age: 0,
+        color,
+        r: rng.range(1.6, 3.2),
+      });
+    }
+  }
+
   scoreText(x, y, text, color = '#eaf6ff', size = 17) {
     this.texts.push({ x, y, text, color, size, life: 0.95, age: 0 });
   }

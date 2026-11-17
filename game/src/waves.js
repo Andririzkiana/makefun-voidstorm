@@ -4,12 +4,12 @@
 // vees, streams, escorted carriers) so consecutive waves feel different.
 
 import { VIEW } from './config.js';
-import { makeBoss, makeCarrier, makeDarter, makeGunner, makeWeaver } from './entities.js';
+import { makeBoss, makeCarrier, makeDarter, makeGunner, makeLancer, makeWeaver } from './entities.js';
 
 export function diffForWave(wave) {
   return {
-    hpMul: 1 + (wave - 1) * 0.17,
-    fireMul: 1 + (wave - 1) * 0.07,
+    hpMul: 1 + (wave - 1) * 0.15,
+    fireMul: Math.min(1.8, 1 + (wave - 1) * 0.06),
     speedMul: Math.min(0.5, (wave - 1) * 0.03),
   };
 }
@@ -47,14 +47,15 @@ export function composeWave(wave, rng) {
   if (wave % 5 === 0) {
     events.push({ at: 0.6, spawn: () => makeBoss(diff) });
     stream(events, 7, 4, 2.6, makeDarter, rng);
-    stream(events, 16, 4, 2.6, makeWeaver, rng);
+    stream(events, 13, 2, 1.4, makeLancer, rng);
+    stream(events, 19, 4, 2.6, makeWeaver, rng);
     return events.sort((a, b) => a.at - b.at);
   }
 
   const budget = 3 + wave;
   let at = 0.5;
   let spent = 0;
-  const patterns = ['line', 'vee', 'stream', 'gunners', 'carrier'];
+  const patterns = ['line', 'vee', 'stream', 'gunners', 'lancers', 'carrier'];
   let patternIndex = (wave - 1) % patterns.length;
 
   while (spent < budget) {
@@ -75,6 +76,12 @@ export function composeWave(wave, rng) {
       stream(events, at, n, 0.55, makeWeaver, rng);
       spent += n;
       at += 3 + n * 0.4;
+    } else if (pattern === 'lancers') {
+      if (wave < 3) continue;
+      const n = wave < 5 ? 2 : 3;
+      stream(events, at, n, 1.5, makeLancer, rng);
+      spent += n * 1.7;
+      at += 3.6 + n * 0.8;
     } else if (pattern === 'gunners') {
       const n = wave < 2 ? 2 : 3;
       const xs = n === 2 ? [VIEW.width * 0.32, VIEW.width * 0.68] : [VIEW.width * 0.24, VIEW.width * 0.5, VIEW.width * 0.76];

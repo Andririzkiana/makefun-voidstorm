@@ -103,6 +103,18 @@ export class SoundSynth {
     this.tone({ freq: big ? 130 : 160, freqEnd: 34, type: 'sine', dur: big ? 0.6 : 0.3, vol: 0.4 });
   }
 
+  dive() {
+    this.tone({ freq: 1400, freqEnd: 220, type: 'sawtooth', dur: 0.42, vol: 0.11 });
+    this.tone({ freq: 2100, freqEnd: 330, type: 'square', dur: 0.34, vol: 0.05 });
+  }
+
+  phaseShift() {
+    this.noise({ dur: 0.8, vol: 0.42, freq: 2400, freqEnd: 90 });
+    this.tone({ freq: 196, freqEnd: 49, type: 'sawtooth', dur: 0.7, vol: 0.22 });
+    this.tone({ freq: 98, type: 'square', dur: 0.18, vol: 0.16, when: 0.05 });
+    this.tone({ freq: 147, type: 'square', dur: 0.18, vol: 0.16, when: 0.28 });
+  }
+
   playerDown() {
     this.noise({ dur: 0.9, vol: 0.5, freq: 3000, freqEnd: 60 });
     this.tone({ freq: 420, freqEnd: 40, type: 'sawtooth', dur: 0.8, vol: 0.3 });

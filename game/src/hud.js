@@ -4,7 +4,7 @@
 // show the complete loop: title, HUD, banners and the results screen.
 
 import { VIEW, COLORS, WEAPONS } from './config.js';
-import { drawPlayerShip } from './ships.js';
+import { drawPlayerShip, drawDarter, drawWeaver, drawLancer, drawGunner, drawCarrier } from './ships.js';
 
 const FONT = '"Segoe UI", system-ui, sans-serif';
 
@@ -76,6 +76,12 @@ export function drawHUD(ctx, game) {
   text(ctx, `BOMB x${game.bombs}`, VIEW.width - 28, 74, {
     size: 13, color: COLORS.bombPickup, align: 'right', weight: 700,
   });
+  if (game.lives === 1 && game.state === 'playing') {
+    const pulse = 0.55 + Math.sin(game.time * 7) * 0.45;
+    text(ctx, 'HULL CRITICAL', VIEW.width - 28, 100, {
+      size: 13, color: COLORS.danger, align: 'right', weight: 800, alpha: pulse, spacing: 2,
+    });
+  }
 
   // Weapon readout, bottom-left.
   const weapon = WEAPONS[game.weaponLevel];
@@ -121,6 +127,19 @@ export function drawBossBar(ctx, boss) {
     ctx.fill();
   });
   ctx.restore();
+  // Phase readout: the fight changes shape at each break.
+  const phase = boss.phase ?? 1;
+  text(ctx, `PHASE ${phase}`, x + w, y + 22, {
+    size: 11, color: phase === 3 ? COLORS.danger : COLORS.textDim, align: 'right', spacing: 2,
+  });
+  for (let i = 0; i < 3; i++) {
+    ctx.save();
+    ctx.translate(x + i * 16, y + 22);
+    ctx.rotate(Math.PI / 4);
+    ctx.fillStyle = i < phase ? COLORS.danger : 'rgba(143,183,216,0.3)';
+    ctx.fillRect(-4, -4, 8, 8);
+    ctx.restore();
+  }
 }
 
 export function drawWaveBanner(ctx, game) {
@@ -209,9 +228,30 @@ export function drawTitle(ctx, game) {
     text(ctx, value, right, y, { size: 14, color: COLORS.textMain });
   });
 
+  // The bestiary: every threat in the void, named, so a first-time
+  // pilot knows the cast before the first wave lands.
+  const cast = [
+    ['DARTER', drawDarter, 0.85],
+    ['WEAVER', drawWeaver, 0.85],
+    ['LANCER', drawLancer, 0.8],
+    ['GUNNER', drawGunner, 0.8],
+    ['CARRIER', drawCarrier, 0.52],
+  ];
+  cast.forEach(([name, draw, scale], i) => {
+    const bx = cx + (i - (cast.length - 1) / 2) * 118;
+    ctx.save();
+    ctx.translate(bx, 632);
+    ctx.scale(scale, scale);
+    draw(ctx, game.time + i * 1.7);
+    ctx.restore();
+    text(ctx, name, bx, 660, {
+      size: 10, color: COLORS.textDim, align: 'center', spacing: 2, weight: 600,
+    });
+  });
+
   const blink = Math.sin(game.time * 3.4) > -0.25;
   if (blink) {
-    text(ctx, 'PRESS ENTER OR CLICK TO LAUNCH', cx, 676, {
+    text(ctx, 'PRESS ENTER OR CLICK TO LAUNCH', cx, 692, {
       size: 19, color: COLORS.gold, align: 'center', spacing: 3, glow: 12,
     });
   }

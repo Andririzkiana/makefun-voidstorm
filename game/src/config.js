@@ -18,6 +18,7 @@ export const COLORS = {
   enemyBullet: '#ff7a59',
   darter: '#ff4fd8',
   weaver: '#ffb340',
+  lancer: '#b6ff3c',
   gunner: '#9d6bff',
   carrier: '#52ffa8',
   mite: '#ff5468',
@@ -63,6 +64,7 @@ export const WEAPONS = [
 export const SCORES = {
   darter: 100,
   weaver: 150,
+  lancer: 200,
   gunner: 250,
   carrier: 400,
   mite: 40,
